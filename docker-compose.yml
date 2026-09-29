@@ -39,6 +39,22 @@ services:
   # agent:
   #   build: .
   #   ...
+  agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   redis-data:

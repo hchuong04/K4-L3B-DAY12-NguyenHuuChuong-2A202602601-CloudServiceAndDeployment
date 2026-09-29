@@ -21,14 +21,52 @@
 #            docker images day12-agent:prod     # xem dung lượng
 # ═══════════════════════════════════════════════════════════════════
 
-FROM python:3.11
+# FROM python:3.11
+
+# WORKDIR /app
+
+# COPY . .
+
+# RUN pip install -r requirements.txt
+
+# EXPOSE 8000
+
+# CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-COPY . .
+# Copy requirements trước để tận dụng Docker layer cache
+COPY requirements.txt .
 
-RUN pip install -r requirements.txt
+# Cài đặt thư viện vào thư mục tạm /install
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Chỉ copy kết quả cài đặt sang /usr/local của runtime
+COPY --from=builder /install /usr/local
+
+# Tạo user không đặc quyền với UID 10001
+RUN useradd --create-home --uid 10001 appuser
+
+# Copy mã nguồn sau khi đã cài xong thư viện và phân quyền cho appuser
+COPY --chown=appuser:appuser . .
+
+# Chuyển context sang appuser (không chạy bằng root)
+USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Health check bằng Python có sẵn, không cần cài curl
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()" || exit 1
+
+# Đọc cổng động từ biến môi trường $PORT (mặc định 8000)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
